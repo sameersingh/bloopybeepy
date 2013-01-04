@@ -48,9 +48,9 @@ abstract class MessageFactor(val factor: Factor, val varying: Set[DiscreteVariab
   val nodes = edges.map(_.n).toSeq
   // number of possible values
   protected val _valuesSize: Int = discreteVarying.foldLeft(1)(_ * _._1.domain.size)
-  val values: Array[Assignment] = factor.valuesIterator(varyingNeighbors).toArray
+  val values: Array[Assignment] = BPUtil.assignments(factor, varyingNeighbors).toArray
   val indices: Array[Int] = new Array[Int](values.length)
-  (0 until values.length).foreach(i => indices(i) = values(i).index(varyingNeighbors))
+  (0 until values.length).foreach(i => indices(i) = i) //values(i).index(varyingNeighbors))
   assert(values.length <= _valuesSize, "%s (%d) has more elements than %s (%d)".format(values, values.length, discreteVarying.map(_._1.domain.size).mkString(" "), _valuesSize))
 
   protected val _marginal: Array[Double] = Array.fill(_valuesSize)(Double.NaN)
@@ -125,11 +125,15 @@ abstract class MessageFactor(val factor: Factor, val varying: Set[DiscreteVariab
     edges.foreach(e => send(e))
   }
 
+  def marginals: Map[Assignment, Double] = {
+    (0 until values.length).map(i => Pair(values(i), marginal(indices(i)))).toMap
+  }
+
   // return the stored marginal probability for the given value
-  def marginal(values: Assignment, index: Int = -1): Double = {
+  def marginal(index: Int): Double = {
     incomingToOutgoing
-    val i = if (index < 0) values.index(varyingNeighbors) else index
-    _marginal(i)
+    assert(index >= 0)
+    _marginal(index)
   }
 
   def currentMaxDelta: Double = {
@@ -166,7 +170,7 @@ abstract class MessageFactor(val factor: Factor, val varying: Set[DiscreteVariab
     for (i <- 0 until values.length) {
       val index = indices(i)
       val assignment = values(i)
-      val prob = marginal(assignment, index)
+      val prob = marginal(index)
       a = f(a, assignment, prob)
     }
     a
@@ -540,7 +544,7 @@ abstract class LatticeBP(val varying: Set[DiscreteVariable]) /*extends Lattice[V
 
   /*override*/ def marginal(f: Factor) = if (_factors.contains(f)) {
     val mf = mfactor(f)
-    Some(new DenseProportions1(mf.values.map(mf marginal _).toArray)) // Some(new DiscreteFactorMarginal(f, mf.values.map(mf marginal _).toArray))
+    Some(new DenseProportions1(mf.indices.map(mf marginal _).toArray)) // Some(new DiscreteFactorMarginal(f, mf.values.map(mf marginal _).toArray))
   } else None
 
   def currentMaxDelta: Double = {

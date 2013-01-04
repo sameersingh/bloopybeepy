@@ -114,6 +114,7 @@
           <!-- useManifestOnlyJar>false</useManifestOnlyJar -->
           <includes>
             <include>**/*Test.*</include>
+            <include>**/Test*.*</include>
             <include>**/*Suite.*</include>
           </includes>
         </configuration>

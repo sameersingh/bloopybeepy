@@ -15,8 +15,9 @@ package edu.umass.cs.iesl.bp
    limitations under the License. */
 
 import cc.factorie._
-import junit.framework._
+import org.junit._
 import Assert._
+import la.DenseTensor2
 import scala.util.Random
 import collection.mutable.ArrayBuffer
 
@@ -25,7 +26,8 @@ import collection.mutable.ArrayBuffer
  * @since Sep 5, 2011
  */
 
-class TestBP extends TestCase {
+@Test
+class TestBP {
 
   // a binary variable that takes values 0 or 1
   object BinDomain extends CategoricalDomain[Int](List(0, 1))
@@ -64,6 +66,8 @@ class TestBP extends TestCase {
       factor =>
       def score(v1: BinVar#Value, v2: BinVar#Value, v3: BinVar#Value) = scores(v1.intValue * 4 + v2.intValue * 2 + v3.intValue)
 
+      def statistics(v1: TestBP.this.type#BinVar#Value, v2: TestBP.this.type#BinVar#Value, v3: TestBP.this.type#BinVar#Value) = ((v1, v2, v3)).asInstanceOf[StatisticsType]
+
       override def equalityPrerequisite = this
 
       override def toString = "F(%s,%s,%s)".format(n1, n2, n3)
@@ -74,13 +78,11 @@ class TestBP extends TestCase {
 
   val eps = 1e-5
 
-  override protected def setUp() {
-    super.setUp
-    // initialize binary variables with two values
-    new BinVar(0)
-    new BinVar(1)
-  }
+  // initialize binary variables with two values
+  new BinVar(0)
+  new BinVar(1)
 
+  @Test
   def testV1F1 = {
     // one variable, one factor
     val v = new BinVar(0)
@@ -109,13 +111,14 @@ class TestBP extends TestCase {
     new InferencerBPWorker(fg).inferLoopyBP(1)
     println(fg.node(v).marginal)
     assertEquals(fg.node(v).marginal.probability(BinDomain(0)), e(1) / (1 + e(1)), eps)
-    for (factor <- fg.factors) {
-      for (value: Assignment <- factor.valuesIterator(Set(v))) {
-        println(value.index(Set(v)))
-      }
-    }
+    //    for (factor <- fg.factors) {
+    //      for (value: Assignment <- BPUtil.assignments(factor, Set(v))) {
+    //        println(value.index(Set(v)))
+    //      }
+    //    }
   }
 
+  @Test
   def testV1F2 = {
     // one variable, two factors
     val v = new BinVar(0)
@@ -138,6 +141,7 @@ class TestBP extends TestCase {
     assertEquals(fg.node(v).marginal.probability(BinDomain(0)), 1.0 / (1 + e(2)), eps)
   }
 
+  @Test
   def testV1F2MAP = {
     // one variable, two factors
     // println("Testing MAP BP")
@@ -161,6 +165,7 @@ class TestBP extends TestCase {
     //assertEquals(fg.node(v).marginal.probability(BinDomain(0)), 1.0 / (1 + e(2)), eps)
   }
 
+  @Test
   def testV2F1 = {
     // a sequence of two variables, one factor
     val v1 = new BinVar(1)
@@ -180,8 +185,9 @@ class TestBP extends TestCase {
     println("v1 : " + fg.node(v1).marginal)
     println("v2 : " + fg.node(v2).marginal)
     for (mfactor <- fg.mfactors) {
-      for (values <- mfactor.factor.valuesIterator(vars.toSet)) {
-        println(values + " : " + mfactor.marginal(values))
+      val marginals = mfactor.marginals
+      for (values <- marginals.keySet) { //BPUtil.assignments(mfactor.factor, vars.toSet)) {
+        println(values + " : " + marginals(values))
         //if(values(v1)==values(v2))
         //  assertEquals(mfactor.marginal(values), 0.5, eps)
         //else assertEquals(mfactor.marginal(values), 0.0, eps)
@@ -198,11 +204,12 @@ class TestBP extends TestCase {
     println("v1 : " + fg.node(v1).marginal)
     println("v2 : " + fg.node(v2).marginal)
     for (mfactor <- fg.mfactors) {
-      for (values <- mfactor.factor.valuesIterator(Set(v2))) {
-        println(values + " : " + mfactor.marginal(values))
+      val marginals = mfactor.marginals
+      for (values <- marginals.keySet) { //BPUtil.assignments(mfactor.factor, Set(v2))) {
+        println(values + " : " + marginals(values))
         if (values(v1) == values(v2))
-          assertEquals(1.0 - 5e-5, mfactor.marginal(values), eps)
-        else assertEquals(5e-5, mfactor.marginal(values), eps)
+          assertEquals(1.0 - 5e-5, marginals(values), eps)
+        else assertEquals(5e-5, marginals(values), eps)
 
       }
     }
@@ -210,6 +217,7 @@ class TestBP extends TestCase {
     assertEquals(5e-5, fg.node(v2).marginal.probability(BinDomain(0)), eps)
   }
 
+  @Test
   def testV2F1Limiting = {
     // a sequence of two variables, one factor
     val v1 = new BinVar(1)
@@ -218,8 +226,9 @@ class TestBP extends TestCase {
 
     // create template between v1 and v2
     var fg: LatticeBP = null
-    val template = new TemplateWithDotStatistics2[BinVar, BinVar] {
-      override def statisticsDomains = Seq(BinDomain, BinDomain)
+    val template = new DotTemplateWithStatistics2[BinVar, BinVar] {
+
+      def weights = new DenseTensor2(BinDomain.size, BinDomain.size)
 
       def unroll1(v: BinVar) = Factor(v1, v2)
 
@@ -230,7 +239,8 @@ class TestBP extends TestCase {
     template.weights.update(1, 2.0)
     template.weights.update(3, 3.0)
 
-    template.addLimitedDiscreteValues(Seq((0, 0), (0, 1)))
+    template.addLimitedDiscreteValues(0, 0)
+    template.addLimitedDiscreteValues(0, 1)
 
     def infer {
       fg = new LatticeBP(vars) with SumProductLattice
@@ -241,12 +251,13 @@ class TestBP extends TestCase {
     }
 
     // test non-limited
-    template.isLimitingValuesIterator = false
+    template.hasLimitedDiscreteValues = false
     infer
-    template.isLimitingValuesIterator = true
+    template.hasLimitedDiscreteValues = true
     infer
   }
 
+  @Test
   def testV2F1MAP = {
     // a sequence of two variables, one factor
     val v1 = new BinVar(1)
@@ -266,8 +277,9 @@ class TestBP extends TestCase {
     // println("v1 : " + fg.node(v1).marginal)
     // println("v2 : " + fg.node(v2).marginal)
     for (mfactor <- fg.mfactors) {
-      for (values <- mfactor.factor.valuesIterator(vars.toSet)) {
-        println(values + " : " + mfactor.marginal(values))
+      val marginals = mfactor.marginals
+      for (values <- marginals.keySet) { //BPUtil.assignments(mfactor.factor, vars.toSet)) {
+        println(values + " : " + marginals(values))
       }
     }
     //assertEquals(fg.node(v1).marginal.score(BinDomain(0)), 10, eps)
@@ -279,6 +291,7 @@ class TestBP extends TestCase {
 
 
   // Same as V2F1 above, just use a much larger potential
+  @Test
   def testV2F1Hard = {
     val v1 = new BinVar(1)
     val v2 = new BinVar(0)
@@ -297,11 +310,12 @@ class TestBP extends TestCase {
     println("v1 : " + fg.node(v1).marginal)
     println("v2 : " + fg.node(v2).marginal)
     for (mfactor <- fg.mfactors) {
-      for (values <- mfactor.factor.valuesIterator(vars.toSet)) {
-        println(values + " : " + mfactor.marginal(values))
+      val marginals = mfactor.marginals
+      for (values <- marginals.keySet) { //BPUtil.assignments(mfactor.factor, vars.toSet)) {
+        println(values + " : " + marginals(values))
         if (values(v1) == values(v2))
-          assertEquals(mfactor.marginal(values), 0.5, eps)
-        else assertEquals(mfactor.marginal(values), 0.0, eps)
+          assertEquals(marginals(values), 0.5, eps)
+        else assertEquals(marginals(values), 0.0, eps)
 
       }
     }
@@ -316,11 +330,12 @@ class TestBP extends TestCase {
     println("v1 : " + fg.node(v1).marginal)
     println("v2 : " + fg.node(v2).marginal)
     for (mfactor <- fg.mfactors) {
-      for (values <- mfactor.factor.valuesIterator(Set(v2))) {
-        println(values + " : " + mfactor.marginal(values))
+      val marginals = mfactor.marginals
+      for (values <- marginals.keySet) { //BPUtil.assignments(mfactor.factor, Set(v2))) {
+        println(values + " : " + marginals(values))
         if (values(v1) == values(v2))
-          assertEquals(mfactor.marginal(values), 1.0, eps)
-        else assertEquals(mfactor.marginal(values), 0.0, eps)
+          assertEquals(marginals(values), 1.0, eps)
+        else assertEquals(marginals(values), 0.0, eps)
 
       }
     }
@@ -328,6 +343,7 @@ class TestBP extends TestCase {
     assertEquals(fg.node(v2).marginal.probability(BinDomain(0)), 0.0, eps)
   }
 
+  @Test
   def testTwoChain = {
     val v1 = new BinVar(1)
     val v2 = new BinVar(1)
@@ -347,6 +363,7 @@ class TestBP extends TestCase {
     assertEquals(v2.intValue, 0)
   }
 
+  @Test
   def testLoop2 = {
     val v1 = new BinVar(1)
     val v2 = new BinVar(0)
@@ -366,6 +383,7 @@ class TestBP extends TestCase {
     assertEquals(v2.intValue, 0)
   }
 
+  @Test
   def testLoop4 = {
     val v1 = new BinVar(1)
     val v2 = new BinVar(0)
@@ -395,6 +413,7 @@ class TestBP extends TestCase {
     assertEquals(v4.intValue, 0)
   }
 
+  @Test
   def testParallelLoop4 = {
     val v1 = new BinVar(1)
     val v2 = new BinVar(0)
@@ -424,6 +443,7 @@ class TestBP extends TestCase {
     assertEquals(v4.intValue, 0)
   }
 
+  @Test
   def testLoop4MAP = {
     val v1 = new BinVar(1)
     val v2 = new BinVar(0)
@@ -454,6 +474,7 @@ class TestBP extends TestCase {
     assertEquals(v4.intValue, 0)
   }
 
+  @Test
   def testTree3 = {
     val v1 = new BinVar(0)
     val v2 = new BinVar(1)
@@ -477,6 +498,7 @@ class TestBP extends TestCase {
     assertEquals(v2.intValue, 1)
   }
 
+  @Test
   def testTree7 = {
     val v1 = new BinVar(0) {
       override def toString = "v1"
@@ -536,6 +558,7 @@ class TestBP extends TestCase {
   }
 
 
+  @Test
   def testTree7MAP = {
     println(" -- Testing MAP tree")
     val v1 = new BinVar(0) {
@@ -592,6 +615,7 @@ class TestBP extends TestCase {
     assertEquals(v7.intValue, 0)
   }
 
+  @Test
   def testChainRandom = {
     println(" -- Testing Random Inference")
     val numVars = 2
@@ -616,7 +640,7 @@ class TestBP extends TestCase {
         for (i <- 0 until numVars) {
           vars(i).set((bs / math.pow(2, i)).toInt % 2)(null)
         }
-        val score = model.score(vars.toIterable)
+        val score = model.currentScore(vars.toIterable)
         //println(bs + " -> " + score)
         scores += score
         Z += math.exp(score)
@@ -654,6 +678,7 @@ class TestBP extends TestCase {
     }
   }
 
+  @Test
   def testV3F1MAPEquals = {
     // a sequence of two variables, one factor
     val v0 = new BinVar(0)
@@ -670,12 +695,13 @@ class TestBP extends TestCase {
     fg.createUnrolled(model)
     new InferencerBPWorker(fg).inferTreewise()
     for (mfactor <- fg.mfactors) {
-      for (values <- mfactor.factor.valuesIterator(vars.toSet)) {
-        println(values + " : " + mfactor.marginal(values))
+      val marginals = mfactor.marginals
+      for (values <- marginals.keySet) { //BPUtil.assignments(mfactor.factor, vars.toSet)) {
+        println(values + " : " + marginals(values))
       }
     }
     fg.setToMaxMarginal()
-    println("V0: %d, V1: %d, V2: %d".format(v0.categoryValue, v1.categoryValue, v2.categoryValue))
+    println("V0: %d, V1: %d, V2: %d".format(v0.intValue, v1.intValue, v2.intValue))
     println("v0: " + fg.node(v0).marginal)
     println("v1: " + fg.node(v1).marginal)
     println("v2: " + fg.node(v2).marginal)
@@ -683,6 +709,7 @@ class TestBP extends TestCase {
     //assert(v1.value == v2.value)
   }
 
+  @Test
   def testV3F4Random = {
     val n1 = new BinVar(0)
     val n2 = new BinVar(0)
@@ -707,7 +734,7 @@ class TestBP extends TestCase {
         n1.set(bs % 2)(null)
         n2.set((bs / 2) % 2)(null)
         n3.set((bs / 4) % 2)(null)
-        val score = model.score(varSet.toIterable)
+        val score = model.currentScore(varSet.toIterable)
         //println(bs + " -> " + score)
         scores += score
         Z += math.exp(score)
@@ -735,6 +762,7 @@ class TestBP extends TestCase {
     }
   }
 
+  @Test
   def testThresholdsOnMarginals = {
     val v = new BinVar(0)
     for (seed <- (0 until 25)) {
